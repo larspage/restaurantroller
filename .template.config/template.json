@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "author": "Your Name",
+  "classifications": [ "Web", "MVC", "API", "Logging" ],
+  "identity": "MvcApiLoggingTemplate",
+  "name": "MVC and API with Serilog Logging",
+  "shortName": "mvcapilog",
+  "tags": {
+    "language": "C#",
+    "type": "project"
+  },
+  "sourceName": "RestaurantRoller",
+  "preferNameDirectory": true,
+  "symbols": {
+    "Framework": {
+      "type": "parameter",
+      "description": "The target framework for the project.",
+      "datatype": "choice",
+      "choices": [
+        {
+          "choice": "net9.0",
+          "description": ".NET 9.0"
+        },
+        {
+          "choice": "net8.0",
+          "description": ".NET 8.0"
+        },
+        {
+          "choice": "net7.0",
+          "description": ".NET 7.0"
+        }
+      ],
+      "defaultValue": "net9.0",
+      "replaces": "net9.0"
+    }
+  }
+} 
