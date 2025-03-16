@@ -1,5 +1,9 @@
 # Script to run the RestaurantRoller.API and provide easy kill command
-Write-Host "Starting RestaurantRoller.API..." -ForegroundColor Cyan
+param (
+    [string]$Environment = "Development"
+)
+
+Write-Host "Starting RestaurantRoller.API in $Environment environment..." -ForegroundColor Cyan
 
 # Change to the API directory
 Set-Location -Path "$PSScriptRoot\RestaurantRoller.API"
@@ -8,8 +12,29 @@ Set-Location -Path "$PSScriptRoot\RestaurantRoller.API"
 $launchSettingsPath = "Properties\launchSettings.json"
 if (Test-Path $launchSettingsPath) {
     $launchSettings = Get-Content -Raw -Path $launchSettingsPath | ConvertFrom-Json
-    $httpUrl = $launchSettings.profiles.http.applicationUrl
-    $httpsUrl = ($launchSettings.profiles.https.applicationUrl -split ";")[0]
+    
+    # Get the profile based on environment
+    $profile = $launchSettings.profiles.$Environment
+    if (-not $profile) {
+        Write-Host "Warning: Profile for environment '$Environment' not found. Using 'Development' profile." -ForegroundColor Yellow
+        $profile = $launchSettings.profiles.Development
+        $Environment = "Development"
+    }
+    
+    $applicationUrl = $profile.applicationUrl
+    $urls = $applicationUrl -split ";"
+    
+    $httpUrl = $urls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
+    $httpsUrl = $urls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
+    
+    if (-not $httpUrl) {
+        $httpUrl = "http://localhost:5132"
+    }
+    
+    if (-not $httpsUrl) {
+        $httpsUrl = "https://localhost:7214"
+    }
+    
     $httpPort = ($httpUrl -split ":")[2]
     $httpsPort = ($httpsUrl -split ":")[2]
     
@@ -39,11 +64,12 @@ if (Test-Path $launchSettingsPath) {
 # Give a moment for killed processes to fully terminate
 Start-Sleep -Seconds 2
 
-# Start the API as a background job
-Write-Host "Starting API..." -ForegroundColor Cyan
+# Start the API as a background job with the specified environment
+Write-Host "Starting API in $Environment environment..." -ForegroundColor Cyan
 $job = Start-Job -ScriptBlock {
     Set-Location -Path $using:PWD
-    dotnet run
+    $env:ASPNETCORE_ENVIRONMENT = $using:Environment
+    dotnet run --launch-profile $using:Environment
 }
 
 # Wait for the API to start
@@ -81,6 +107,8 @@ if ($apiProcess) {
     Write-Host "API URLs:" -ForegroundColor Cyan
     Write-Host "  HTTP:  $httpUrl" -ForegroundColor Green
     Write-Host "  HTTPS: $httpsUrl" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "Environment: $Environment" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "To kill the API process, run this command:" -ForegroundColor Yellow
     Write-Host "Stop-Process -Id $processId -Force" -ForegroundColor Yellow

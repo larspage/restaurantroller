@@ -1,12 +1,36 @@
 # Script to run both RestaurantRoller.API and RestaurantRoller.Web together
-Write-Host "Starting RestaurantRoller API and Web app..." -ForegroundColor Cyan
+param (
+    [string]$Environment = "Development"
+)
+
+Write-Host "Starting RestaurantRoller API and Web app in $Environment environment..." -ForegroundColor Cyan
 
 # Read API port numbers from launchSettings.json
 $apiLaunchSettingsPath = "$PSScriptRoot\RestaurantRoller.API\Properties\launchSettings.json"
 if (Test-Path $apiLaunchSettingsPath) {
     $apiLaunchSettings = Get-Content -Raw -Path $apiLaunchSettingsPath | ConvertFrom-Json
-    $apiHttpUrl = $apiLaunchSettings.profiles.http.applicationUrl
-    $apiHttpsUrl = ($apiLaunchSettings.profiles.https.applicationUrl -split ";")[0]
+    
+    # Get the profile based on environment
+    $apiProfile = $apiLaunchSettings.profiles.$Environment
+    if (-not $apiProfile) {
+        Write-Host "Warning: API profile for environment '$Environment' not found. Using 'Development' profile." -ForegroundColor Yellow
+        $apiProfile = $apiLaunchSettings.profiles.Development
+    }
+    
+    $apiApplicationUrl = $apiProfile.applicationUrl
+    $apiUrls = $apiApplicationUrl -split ";"
+    
+    $apiHttpUrl = $apiUrls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
+    $apiHttpsUrl = $apiUrls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
+    
+    if (-not $apiHttpUrl) {
+        $apiHttpUrl = "http://localhost:5132"
+    }
+    
+    if (-not $apiHttpsUrl) {
+        $apiHttpsUrl = "https://localhost:7214"
+    }
+    
     $apiHttpPort = ($apiHttpUrl -split ":")[2]
     $apiHttpsPort = ($apiHttpsUrl -split ":")[2]
     
@@ -29,14 +53,36 @@ if (Test-Path $apiLaunchSettingsPath) {
     Write-Host "Warning: Could not find API launchSettings.json. Using default ports." -ForegroundColor Yellow
     $apiHttpUrl = "http://localhost:5132"
     $apiHttpsUrl = "https://localhost:7214"
+    $apiHttpPort = "5132"
+    $apiHttpsPort = "7214"
 }
 
 # Read Web port numbers from launchSettings.json
 $webLaunchSettingsPath = "$PSScriptRoot\RestaurantRoller.Web\Properties\launchSettings.json"
 if (Test-Path $webLaunchSettingsPath) {
     $webLaunchSettings = Get-Content -Raw -Path $webLaunchSettingsPath | ConvertFrom-Json
-    $webHttpUrl = $webLaunchSettings.profiles.http.applicationUrl
-    $webHttpsUrl = ($webLaunchSettings.profiles.https.applicationUrl -split ";")[0]
+    
+    # Get the profile based on environment
+    $webProfile = $webLaunchSettings.profiles.$Environment
+    if (-not $webProfile) {
+        Write-Host "Warning: Web profile for environment '$Environment' not found. Using 'Development' profile." -ForegroundColor Yellow
+        $webProfile = $webLaunchSettings.profiles.Development
+    }
+    
+    $webApplicationUrl = $webProfile.applicationUrl
+    $webUrls = $webApplicationUrl -split ";"
+    
+    $webHttpUrl = $webUrls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
+    $webHttpsUrl = $webUrls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
+    
+    if (-not $webHttpUrl) {
+        $webHttpUrl = "http://localhost:5146"
+    }
+    
+    if (-not $webHttpsUrl) {
+        $webHttpsUrl = "https://localhost:7224"
+    }
+    
     $webHttpPort = ($webHttpUrl -split ":")[2]
     $webHttpsPort = ($webHttpsUrl -split ":")[2]
     
@@ -59,16 +105,19 @@ if (Test-Path $webLaunchSettingsPath) {
     Write-Host "Warning: Could not find Web launchSettings.json. Using default ports." -ForegroundColor Yellow
     $webHttpUrl = "http://localhost:5146"
     $webHttpsUrl = "https://localhost:7224"
+    $webHttpPort = "5146"
+    $webHttpsPort = "7224"
 }
 
 # Give a moment for killed processes to fully terminate
 Start-Sleep -Seconds 2
 
 # Start the API as a background job
-Write-Host "Starting API..." -ForegroundColor Cyan
+Write-Host "Starting API in $Environment environment..." -ForegroundColor Cyan
 $apiJob = Start-Job -ScriptBlock {
     Set-Location -Path "$using:PSScriptRoot\RestaurantRoller.API"
-    dotnet run
+    $env:ASPNETCORE_ENVIRONMENT = $using:Environment
+    dotnet run --launch-profile $using:Environment
 }
 
 # Wait for the API to start
@@ -76,10 +125,11 @@ Write-Host "Waiting for API to start..." -ForegroundColor Cyan
 Start-Sleep -Seconds 5
 
 # Start the Web app as a background job
-Write-Host "Starting Web app..." -ForegroundColor Cyan
+Write-Host "Starting Web app in $Environment environment..." -ForegroundColor Cyan
 $webJob = Start-Job -ScriptBlock {
     Set-Location -Path "$using:PSScriptRoot\RestaurantRoller.Web"
-    dotnet run
+    $env:ASPNETCORE_ENVIRONMENT = $using:Environment
+    dotnet run --launch-profile $using:Environment
 }
 
 # Wait for the Web app to start
@@ -117,6 +167,7 @@ if (-not $webProcess) {
 
 # Display information about the running processes
 Write-Host "`n=== RESTAURANT ROLLER PROCESSES ===" -ForegroundColor Cyan
+Write-Host "Environment: $Environment" -ForegroundColor Cyan
 
 if ($apiProcess) {
     $apiProcessId = $apiProcess.Id
