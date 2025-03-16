@@ -6,7 +6,7 @@
       "dotnetRunMessages": true,
       "launchBrowser": false,
       "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:5132;https://localhost:7214",
+      "applicationUrl": "https://localhost:7214",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development"
       }
@@ -16,7 +16,7 @@
       "dotnetRunMessages": true,
       "launchBrowser": false,
       "launchUrl": "swagger",
-      "applicationUrl": "http://localhost:5133;https://localhost:7215",
+      "applicationUrl": "https://localhost:7215",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "QA"
       }
@@ -25,7 +25,7 @@
       "commandName": "Project",
       "dotnetRunMessages": true,
       "launchBrowser": false,
-      "applicationUrl": "http://localhost:5134;https://localhost:7216",
+      "applicationUrl": "https://localhost:7216",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Production"
       }

@@ -24,29 +24,16 @@ if (Test-Path $launchSettingsPath) {
     $applicationUrl = $profile.applicationUrl
     $urls = $applicationUrl -split ";"
     
-    $httpUrl = $urls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
     $httpsUrl = $urls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
-    
-    if (-not $httpUrl) {
-        $httpUrl = "http://localhost:5146"
-    }
     
     if (-not $httpsUrl) {
         $httpsUrl = "https://localhost:7224"
     }
     
-    $httpPort = ($httpUrl -split ":")[2]
     $httpsPort = ($httpsUrl -split ":")[2]
     
     # Kill any existing processes using these ports
-    $httpProcesses = Get-NetTCPConnection -LocalPort $httpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     $httpsProcesses = Get-NetTCPConnection -LocalPort $httpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
-    
-    foreach ($process in $httpProcesses) {
-        $processId = $process.OwningProcess
-        Write-Host "Killing process $processId that was using port $httpPort" -ForegroundColor Yellow
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    }
     
     foreach ($process in $httpsProcesses) {
         $processId = $process.OwningProcess
@@ -55,9 +42,7 @@ if (Test-Path $launchSettingsPath) {
     }
 } else {
     Write-Host "Warning: Could not find launchSettings.json. Using default ports." -ForegroundColor Yellow
-    $httpUrl = "http://localhost:5146"
     $httpsUrl = "https://localhost:7224"
-    $httpPort = "5146"
     $httpsPort = "7224"
 }
 
@@ -74,7 +59,7 @@ $job = Start-Job -ScriptBlock {
 
 # Wait for the Web app to start
 Write-Host "Waiting for Web app to start..." -ForegroundColor Cyan
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 
 # Function to find a process by port
 function Find-ProcessByPort {
@@ -95,17 +80,20 @@ function Find-ProcessByPort {
 }
 
 # Try to find the Web app process by port first, then by command line
-$webProcess = Find-ProcessByPort $httpPort
+$webProcess = Find-ProcessByPort $httpsPort
 if (-not $webProcess) {
-    $webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web.dll*" -or $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+    $webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 }
+
+# Get job output to check for URLs
+$jobStatus = Receive-Job -Job $job -Keep
+$webRunning = $false
 
 if ($webProcess) {
     $processId = $webProcess.Id
     Write-Host "Web app is running with process ID: $processId" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Web URLs:" -ForegroundColor Cyan
-    Write-Host "  HTTP:  $httpUrl" -ForegroundColor Green
+    Write-Host "Web URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $httpsUrl" -ForegroundColor Green
     Write-Host ""
     Write-Host "Environment: $Environment" -ForegroundColor Cyan
@@ -115,14 +103,40 @@ if ($webProcess) {
     Write-Host ""
     Write-Host "Or simply run:" -ForegroundColor Yellow
     Write-Host "./kill-web.ps1" -ForegroundColor Yellow
+    $webRunning = $true
+} else {
+    # Look for URL in job output
+    $urlMatch = $jobStatus | Select-String -Pattern "Now listening on: (https://[^\s]+)" -AllMatches
+    if ($urlMatch -and $urlMatch.Matches.Count -gt 0) {
+        $detectedUrl = $urlMatch.Matches[0].Groups[1].Value
+        Write-Host "Web app is running" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Web URL:" -ForegroundColor Cyan
+        Write-Host "  HTTPS: $detectedUrl" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Environment: $Environment" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "To kill the Web app process, run:" -ForegroundColor Yellow
+        Write-Host "./kill-web.ps1" -ForegroundColor Yellow
+        $webRunning = $true
+    } else {
+        Write-Host "Web app process not found. Checking job status..." -ForegroundColor Yellow
+        Write-Host $jobStatus -ForegroundColor Gray
+        Write-Host "Web app might not have started correctly." -ForegroundColor Red
+        # Clean up the job if we couldn't find the process
+        Remove-Job $job -Force
+        Set-Location -Path $PSScriptRoot
+        return
+    }
+}
     
-    # Create a kill script for easy termination
-    @"
+# Create a kill script for easy termination
+@"
 # Kill the RestaurantRoller.Web process
-`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web.dll*" -or `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 if (-not `$webProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $httpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $httpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$webProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -138,19 +152,10 @@ if (`$webProcess) {
 }
 "@ | Out-File -FilePath "$PSScriptRoot\kill-web.ps1" -Encoding utf8
 
-    # Wait for the job to complete (which it won't unless there's an error)
-    # This keeps the script running so the Web app stays up
-    Wait-Job $job
-    Receive-Job $job
-} else {
-    # Check if the job is still running
-    $jobStatus = Receive-Job -Job $job -Keep
-    Write-Host "Web app process not found. Checking job status..." -ForegroundColor Yellow
-    Write-Host $jobStatus -ForegroundColor Gray
-    Write-Host "Web app might not have started correctly." -ForegroundColor Red
-    # Clean up the job if we couldn't find the process
-    Remove-Job $job -Force
-}
+# Wait for the job to complete (which it won't unless there's an error)
+# This keeps the script running so the Web app stays up
+Wait-Job $job
+Receive-Job $job
 
 # Return to the original directory
 Set-Location -Path $PSScriptRoot 

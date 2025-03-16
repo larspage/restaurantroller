@@ -24,29 +24,16 @@ if (Test-Path $launchSettingsPath) {
     $applicationUrl = $profile.applicationUrl
     $urls = $applicationUrl -split ";"
     
-    $httpUrl = $urls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
     $httpsUrl = $urls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
-    
-    if (-not $httpUrl) {
-        $httpUrl = "http://localhost:5132"
-    }
     
     if (-not $httpsUrl) {
         $httpsUrl = "https://localhost:7214"
     }
     
-    $httpPort = ($httpUrl -split ":")[2]
     $httpsPort = ($httpsUrl -split ":")[2]
     
     # Kill any existing processes using these ports
-    $httpProcesses = Get-NetTCPConnection -LocalPort $httpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     $httpsProcesses = Get-NetTCPConnection -LocalPort $httpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
-    
-    foreach ($process in $httpProcesses) {
-        $processId = $process.OwningProcess
-        Write-Host "Killing process $processId that was using port $httpPort" -ForegroundColor Yellow
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    }
     
     foreach ($process in $httpsProcesses) {
         $processId = $process.OwningProcess
@@ -55,9 +42,7 @@ if (Test-Path $launchSettingsPath) {
     }
 } else {
     Write-Host "Warning: Could not find launchSettings.json. Using default ports." -ForegroundColor Yellow
-    $httpUrl = "http://localhost:5132"
     $httpsUrl = "https://localhost:7214"
-    $httpPort = "5132"
     $httpsPort = "7214"
 }
 
@@ -74,7 +59,7 @@ $job = Start-Job -ScriptBlock {
 
 # Wait for the API to start
 Write-Host "Waiting for API to start..." -ForegroundColor Cyan
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 
 # Function to find a process by port
 function Find-ProcessByPort {
@@ -95,17 +80,20 @@ function Find-ProcessByPort {
 }
 
 # Try to find the API process by port first, then by command line
-$apiProcess = Find-ProcessByPort $httpPort
+$apiProcess = Find-ProcessByPort $httpsPort
 if (-not $apiProcess) {
-    $apiProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.API.dll*" -or $_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+    $apiProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
 }
+
+# Get job output to check for URLs
+$jobStatus = Receive-Job -Job $job -Keep
+$apiRunning = $false
 
 if ($apiProcess) {
     $processId = $apiProcess.Id
     Write-Host "API is running with process ID: $processId" -ForegroundColor Green
     Write-Host ""
-    Write-Host "API URLs:" -ForegroundColor Cyan
-    Write-Host "  HTTP:  $httpUrl" -ForegroundColor Green
+    Write-Host "API URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $httpsUrl" -ForegroundColor Green
     Write-Host ""
     Write-Host "Environment: $Environment" -ForegroundColor Cyan
@@ -115,14 +103,40 @@ if ($apiProcess) {
     Write-Host ""
     Write-Host "Or simply run:" -ForegroundColor Yellow
     Write-Host "./kill-api.ps1" -ForegroundColor Yellow
+    $apiRunning = $true
+} else {
+    # Look for URL in job output
+    $urlMatch = $jobStatus | Select-String -Pattern "Now listening on: (https://[^\s]+)" -AllMatches
+    if ($urlMatch -and $urlMatch.Matches.Count -gt 0) {
+        $detectedUrl = $urlMatch.Matches[0].Groups[1].Value
+        Write-Host "API is running" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "API URL:" -ForegroundColor Cyan
+        Write-Host "  HTTPS: $detectedUrl" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Environment: $Environment" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "To kill the API process, run:" -ForegroundColor Yellow
+        Write-Host "./kill-api.ps1" -ForegroundColor Yellow
+        $apiRunning = $true
+    } else {
+        Write-Host "API process not found. Checking job status..." -ForegroundColor Yellow
+        Write-Host $jobStatus -ForegroundColor Gray
+        Write-Host "API might not have started correctly." -ForegroundColor Red
+        # Clean up the job if we couldn't find the process
+        Remove-Job $job -Force
+        Set-Location -Path $PSScriptRoot
+        return
+    }
+}
     
-    # Create a kill script for easy termination
-    @"
+# Create a kill script for easy termination
+@"
 # Kill the RestaurantRoller.API process
-`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API.dll*" -or `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
 if (-not `$apiProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $httpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $httpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$apiProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -138,19 +152,10 @@ if (`$apiProcess) {
 }
 "@ | Out-File -FilePath "$PSScriptRoot\kill-api.ps1" -Encoding utf8
 
-    # Wait for the job to complete (which it won't unless there's an error)
-    # This keeps the script running so the API stays up
-    Wait-Job $job
-    Receive-Job $job
-} else {
-    # Check if the job is still running
-    $jobStatus = Receive-Job -Job $job -Keep
-    Write-Host "API process not found. Checking job status..." -ForegroundColor Yellow
-    Write-Host $jobStatus -ForegroundColor Gray
-    Write-Host "API might not have started correctly." -ForegroundColor Red
-    # Clean up the job if we couldn't find the process
-    Remove-Job $job -Force
-}
+# Wait for the job to complete (which it won't unless there's an error)
+# This keeps the script running so the API stays up
+Wait-Job $job
+Receive-Job $job
 
 # Return to the original directory
 Set-Location -Path $PSScriptRoot 

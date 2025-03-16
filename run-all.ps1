@@ -20,29 +20,16 @@ if (Test-Path $apiLaunchSettingsPath) {
     $apiApplicationUrl = $apiProfile.applicationUrl
     $apiUrls = $apiApplicationUrl -split ";"
     
-    $apiHttpUrl = $apiUrls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
     $apiHttpsUrl = $apiUrls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
-    
-    if (-not $apiHttpUrl) {
-        $apiHttpUrl = "http://localhost:5132"
-    }
     
     if (-not $apiHttpsUrl) {
         $apiHttpsUrl = "https://localhost:7214"
     }
     
-    $apiHttpPort = ($apiHttpUrl -split ":")[2]
     $apiHttpsPort = ($apiHttpsUrl -split ":")[2]
     
     # Kill any existing processes using these ports
-    $apiHttpProcesses = Get-NetTCPConnection -LocalPort $apiHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     $apiHttpsProcesses = Get-NetTCPConnection -LocalPort $apiHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
-    
-    foreach ($process in $apiHttpProcesses) {
-        $processId = $process.OwningProcess
-        Write-Host "Killing process $processId that was using API port $apiHttpPort" -ForegroundColor Yellow
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    }
     
     foreach ($process in $apiHttpsProcesses) {
         $processId = $process.OwningProcess
@@ -51,9 +38,7 @@ if (Test-Path $apiLaunchSettingsPath) {
     }
 } else {
     Write-Host "Warning: Could not find API launchSettings.json. Using default ports." -ForegroundColor Yellow
-    $apiHttpUrl = "http://localhost:5132"
     $apiHttpsUrl = "https://localhost:7214"
-    $apiHttpPort = "5132"
     $apiHttpsPort = "7214"
 }
 
@@ -72,29 +57,16 @@ if (Test-Path $webLaunchSettingsPath) {
     $webApplicationUrl = $webProfile.applicationUrl
     $webUrls = $webApplicationUrl -split ";"
     
-    $webHttpUrl = $webUrls | Where-Object { $_ -like "http://*" } | Select-Object -First 1
     $webHttpsUrl = $webUrls | Where-Object { $_ -like "https://*" } | Select-Object -First 1
-    
-    if (-not $webHttpUrl) {
-        $webHttpUrl = "http://localhost:5146"
-    }
     
     if (-not $webHttpsUrl) {
         $webHttpsUrl = "https://localhost:7224"
     }
     
-    $webHttpPort = ($webHttpUrl -split ":")[2]
     $webHttpsPort = ($webHttpsUrl -split ":")[2]
     
     # Kill any existing processes using these ports
-    $webHttpProcesses = Get-NetTCPConnection -LocalPort $webHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     $webHttpsProcesses = Get-NetTCPConnection -LocalPort $webHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
-    
-    foreach ($process in $webHttpProcesses) {
-        $processId = $process.OwningProcess
-        Write-Host "Killing process $processId that was using Web port $webHttpPort" -ForegroundColor Yellow
-        Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
-    }
     
     foreach ($process in $webHttpsProcesses) {
         $processId = $process.OwningProcess
@@ -103,9 +75,7 @@ if (Test-Path $webLaunchSettingsPath) {
     }
 } else {
     Write-Host "Warning: Could not find Web launchSettings.json. Using default ports." -ForegroundColor Yellow
-    $webHttpUrl = "http://localhost:5146"
     $webHttpsUrl = "https://localhost:7224"
-    $webHttpPort = "5146"
     $webHttpsPort = "7224"
 }
 
@@ -122,7 +92,7 @@ $apiJob = Start-Job -ScriptBlock {
 
 # Wait for the API to start
 Write-Host "Waiting for API to start..." -ForegroundColor Cyan
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 
 # Start the Web app as a background job
 Write-Host "Starting Web app in $Environment environment..." -ForegroundColor Cyan
@@ -134,7 +104,7 @@ $webJob = Start-Job -ScriptBlock {
 
 # Wait for the Web app to start
 Write-Host "Waiting for Web app to start..." -ForegroundColor Cyan
-Start-Sleep -Seconds 5
+Start-Sleep -Seconds 10
 
 # Function to find a process by port
 function Find-ProcessByPort {
@@ -154,59 +124,93 @@ function Find-ProcessByPort {
     return $null
 }
 
-# Try to find processes by port first, then by command line
-$apiProcess = Find-ProcessByPort $apiHttpPort
-if (-not $apiProcess) {
-    $apiProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.API.dll*" -or $_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+# Function to find a process by command line pattern
+function Find-ProcessByCommandLine {
+    param (
+        [string]$pattern
+    )
+    
+    $processes = Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like $pattern }
+    return $processes | Select-Object -First 1
 }
 
-$webProcess = Find-ProcessByPort $webHttpPort
+# Try to find processes by port first, then by command line
+$apiProcess = Find-ProcessByPort $apiHttpsPort
+if (-not $apiProcess) {
+    $apiProcess = Find-ProcessByCommandLine "*RestaurantRoller.API*"
+}
+
+$webProcess = Find-ProcessByPort $webHttpsPort
 if (-not $webProcess) {
-    $webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web.dll*" -or $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+    $webProcess = Find-ProcessByCommandLine "*RestaurantRoller.Web*"
 }
 
 # Display information about the running processes
 Write-Host "`n=== RESTAURANT ROLLER PROCESSES ===" -ForegroundColor Cyan
 Write-Host "Environment: $Environment" -ForegroundColor Cyan
 
+# Check API job status
+$apiJobStatus = Receive-Job -Job $apiJob -Keep
+$apiRunning = $false
+
 if ($apiProcess) {
     $apiProcessId = $apiProcess.Id
     Write-Host "API is running with process ID: $apiProcessId" -ForegroundColor Green
-    Write-Host "API URLs:" -ForegroundColor Cyan
-    Write-Host "  HTTP:  $apiHttpUrl" -ForegroundColor Green
+    Write-Host "API URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $apiHttpsUrl" -ForegroundColor Green
+    $apiRunning = $true
 } else {
-    # Check if the job is still running
-    $apiJobStatus = Receive-Job -Job $apiJob -Keep
-    Write-Host "API process not found. Checking job status..." -ForegroundColor Yellow
-    Write-Host $apiJobStatus -ForegroundColor Gray
-    Write-Host "API might not have started correctly." -ForegroundColor Red
+    # Look for URL in job output
+    $apiUrlMatch = $apiJobStatus | Select-String -Pattern "Now listening on: (https://[^\s]+)" -AllMatches
+    if ($apiUrlMatch -and $apiUrlMatch.Matches.Count -gt 0) {
+        $detectedApiUrl = $apiUrlMatch.Matches[0].Groups[1].Value
+        Write-Host "API is running" -ForegroundColor Green
+        Write-Host "API URL:" -ForegroundColor Cyan
+        Write-Host "  HTTPS: $detectedApiUrl" -ForegroundColor Green
+        $apiRunning = $true
+    } else {
+        Write-Host "API process not found. Checking job status..." -ForegroundColor Yellow
+        Write-Host $apiJobStatus -ForegroundColor Gray
+        Write-Host "API might not have started correctly." -ForegroundColor Red
+    }
 }
 
 Write-Host ""
 
+# Check Web job status
+$webJobStatus = Receive-Job -Job $webJob -Keep
+$webRunning = $false
+
 if ($webProcess) {
     $webProcessId = $webProcess.Id
     Write-Host "Web app is running with process ID: $webProcessId" -ForegroundColor Green
-    Write-Host "Web URLs:" -ForegroundColor Cyan
-    Write-Host "  HTTP:  $webHttpUrl" -ForegroundColor Green
+    Write-Host "Web URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $webHttpsUrl" -ForegroundColor Green
+    $webRunning = $true
 } else {
-    # Check if the job is still running
-    $webJobStatus = Receive-Job -Job $webJob -Keep
-    Write-Host "Web app process not found. Checking job status..." -ForegroundColor Yellow
-    Write-Host $webJobStatus -ForegroundColor Gray
-    Write-Host "Web app might not have started correctly." -ForegroundColor Red
+    # Look for URL in job output
+    $webUrlMatch = $webJobStatus | Select-String -Pattern "Now listening on: (https://[^\s]+)" -AllMatches
+    if ($webUrlMatch -and $webUrlMatch.Matches.Count -gt 0) {
+        $detectedWebUrl = $webUrlMatch.Matches[0].Groups[1].Value
+        Write-Host "Web app is running" -ForegroundColor Green
+        Write-Host "Web URL:" -ForegroundColor Cyan
+        Write-Host "  HTTPS: $detectedWebUrl" -ForegroundColor Green
+        $webRunning = $true
+    } else {
+        Write-Host "Web app process not found. Checking job status..." -ForegroundColor Yellow
+        Write-Host $webJobStatus -ForegroundColor Gray
+        Write-Host "Web app might not have started correctly." -ForegroundColor Red
+    }
 }
 
 # Create kill scripts
-if ($apiProcess) {
+if ($apiRunning) {
     @"
 # Kill the RestaurantRoller.API process
-`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API.dll*" -or `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
 if (-not `$apiProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $apiHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $apiHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$apiProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -223,13 +227,13 @@ if (`$apiProcess) {
 "@ | Out-File -FilePath "$PSScriptRoot\kill-api.ps1" -Encoding utf8
 }
 
-if ($webProcess) {
+if ($webRunning) {
     @"
 # Kill the RestaurantRoller.Web process
-`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web.dll*" -or `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 if (-not `$webProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $webHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $webHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$webProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -252,10 +256,10 @@ if (`$webProcess) {
 Write-Host "Stopping all RestaurantRoller processes..." -ForegroundColor Cyan
 
 # Kill API process
-`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API.dll*" -or `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+`$apiProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
 if (-not `$apiProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $apiHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $apiHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$apiProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -271,10 +275,10 @@ if (`$apiProcess) {
 }
 
 # Kill Web process
-`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web.dll*" -or `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+`$webProcess = Get-Process -Name "dotnet" | Where-Object { `$_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 if (-not `$webProcess) {
     # Try to find by port
-    `$connections = Get-NetTCPConnection -LocalPort $webHttpPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    `$connections = Get-NetTCPConnection -LocalPort $webHttpsPort -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if (`$connections) {
         `$webProcess = Get-Process -Id `$connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
