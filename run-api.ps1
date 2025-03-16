@@ -93,8 +93,12 @@ if ($apiProcess) {
     $processId = $apiProcess.Id
     Write-Host "API is running with process ID: $processId" -ForegroundColor Green
     Write-Host ""
-    Write-Host "API URL:" -ForegroundColor Cyan
+    Write-Host "API Base URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $httpsUrl" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "API Endpoints:" -ForegroundColor Cyan
+    Write-Host "  REST API: $httpsUrl/api/restaurant" -ForegroundColor Green
+    Write-Host "  Swagger UI: $httpsUrl/swagger" -ForegroundColor Green
     Write-Host ""
     Write-Host "Environment: $Environment" -ForegroundColor Cyan
     Write-Host ""
@@ -111,8 +115,12 @@ if ($apiProcess) {
         $detectedUrl = $urlMatch.Matches[0].Groups[1].Value
         Write-Host "API is running" -ForegroundColor Green
         Write-Host ""
-        Write-Host "API URL:" -ForegroundColor Cyan
+        Write-Host "API Base URL:" -ForegroundColor Cyan
         Write-Host "  HTTPS: $detectedUrl" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "API Endpoints:" -ForegroundColor Cyan
+        Write-Host "  REST API: $detectedUrl/api/restaurant" -ForegroundColor Green
+        Write-Host "  Swagger UI: $detectedUrl/swagger" -ForegroundColor Green
         Write-Host ""
         Write-Host "Environment: $Environment" -ForegroundColor Cyan
         Write-Host ""

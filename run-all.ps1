@@ -156,8 +156,11 @@ $apiRunning = $false
 if ($apiProcess) {
     $apiProcessId = $apiProcess.Id
     Write-Host "API is running with process ID: $apiProcessId" -ForegroundColor Green
-    Write-Host "API URL:" -ForegroundColor Cyan
+    Write-Host "API Base URL:" -ForegroundColor Cyan
     Write-Host "  HTTPS: $apiHttpsUrl" -ForegroundColor Green
+    Write-Host "API Endpoints:" -ForegroundColor Cyan
+    Write-Host "  REST API: $apiHttpsUrl/api/restaurant" -ForegroundColor Green
+    Write-Host "  Swagger UI: $apiHttpsUrl/swagger" -ForegroundColor Green
     $apiRunning = $true
 } else {
     # Look for URL in job output
@@ -165,8 +168,11 @@ if ($apiProcess) {
     if ($apiUrlMatch -and $apiUrlMatch.Matches.Count -gt 0) {
         $detectedApiUrl = $apiUrlMatch.Matches[0].Groups[1].Value
         Write-Host "API is running" -ForegroundColor Green
-        Write-Host "API URL:" -ForegroundColor Cyan
+        Write-Host "API Base URL:" -ForegroundColor Cyan
         Write-Host "  HTTPS: $detectedApiUrl" -ForegroundColor Green
+        Write-Host "API Endpoints:" -ForegroundColor Cyan
+        Write-Host "  REST API: $detectedApiUrl/api/restaurant" -ForegroundColor Green
+        Write-Host "  Swagger UI: $detectedApiUrl/swagger" -ForegroundColor Green
         $apiRunning = $true
     } else {
         Write-Host "API process not found. Checking job status..." -ForegroundColor Yellow

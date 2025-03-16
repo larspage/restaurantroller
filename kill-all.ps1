@@ -2,10 +2,10 @@
 Write-Host "Stopping all RestaurantRoller processes..." -ForegroundColor Cyan
 
 # Kill API process
-$apiProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.API.dll*" -or $_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
+$apiProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.API*" } | Select-Object -First 1
 if (-not $apiProcess) {
     # Try to find by port
-    $connections = Get-NetTCPConnection -LocalPort 5132 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    $connections = Get-NetTCPConnection -LocalPort 7214 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if ($connections) {
         $apiProcess = Get-Process -Id $connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
@@ -21,10 +21,10 @@ if ($apiProcess) {
 }
 
 # Kill Web process
-$webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web.dll*" -or $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+$webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 if (-not $webProcess) {
     # Try to find by port
-    $connections = Get-NetTCPConnection -LocalPort 5146 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    $connections = Get-NetTCPConnection -LocalPort 7224 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if ($connections) {
         $webProcess = Get-Process -Id $connections[0].OwningProcess -ErrorAction SilentlyContinue
     }

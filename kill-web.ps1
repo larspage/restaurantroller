@@ -1,8 +1,8 @@
 # Kill the RestaurantRoller.Web process
-$webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web.dll*" -or $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
+$webProcess = Get-Process -Name "dotnet" | Where-Object { $_.CommandLine -like "*RestaurantRoller.Web*" } | Select-Object -First 1
 if (-not $webProcess) {
     # Try to find by port
-    $connections = Get-NetTCPConnection -LocalPort 5146 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
+    $connections = Get-NetTCPConnection -LocalPort 7224 -ErrorAction SilentlyContinue | Where-Object State -eq Listen
     if ($connections) {
         $webProcess = Get-Process -Id $connections[0].OwningProcess -ErrorAction SilentlyContinue
     }
